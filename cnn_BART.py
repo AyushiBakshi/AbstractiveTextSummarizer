@@ -1,4 +1,4 @@
-from transformers import AutoTokenizer, AutoModel, Seq2SeqTrainer, TrainingArguments
+from transformers import AutoTokenizer, AutoModel, Seq2SeqTrainer, TrainingArguments, BartForConditionalGeneration, BartTokenizer
 from datasets import load_dataset, load_metric
 
 if __name__ == '__main__':
@@ -16,10 +16,10 @@ if __name__ == '__main__':
         batch["attention_mask"] = inputs.attention_mask
         batch["decoder_input_ids"] = outputs.input_ids
         batch["decoder_attention_mask"] = outputs.attention_mask
-        batch["labels"] = outputs.input_ids.copy()
-        batch["labels"] = [[-100 if token == tokenizer.pad_token_id else token
-                            for token in labels]
-                           for labels in batch["labels"]]
+        batch["label"] = outputs.input_ids.copy()
+        batch["label"] = [[-100 if token == tokenizer.pad_token_id else token
+                            for token in label]
+                           for label in batch["label"]]
         batch["decoder_attention_mask"] = outputs.attention_mask
 
         return batch
@@ -71,8 +71,9 @@ if __name__ == '__main__':
                 "rougeL_fmeasure":  round(rouge_output["rougeL"].mid.fmeasure, 4)}
 
 
-    model = AutoModel.from_pretrained("facebook/bart-large-cnn")
-    tokenizer = AutoTokenizer.from_pretrained("facebook/bart-large-cnn")
+    model = BartForConditionalGeneration.from_pretrained("facebook/bart-base")
+    tokenizer = BartTokenizer.from_pretrained('facebook/bart-base', add_prefix_space=True)
+
     tokenizer.bos_token = tokenizer.cls_token
     tokenizer.eos_token = tokenizer.sep_token
 
@@ -106,7 +107,7 @@ if __name__ == '__main__':
                                           "attention_mask",
                                           "decoder_attention_mask",
                                           "decoder_input_ids",
-                                          "labels"])
+                                          "label"])
 
     # same for validation dataset
     cnn_val_dataset = cnn_val_dataset.map(map_to_encoder_decoder_inputs,
@@ -118,7 +119,7 @@ if __name__ == '__main__':
                                         "decoder_attention_mask",
                                         "attention_mask",
                                         "decoder_input_ids",
-                                        "labels"])
+                                        "label"])
 
     training_args = TrainingArguments(output_dir="./cnn_dailymail",
                                       per_device_train_batch_size=batch_size,
