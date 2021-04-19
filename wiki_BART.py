@@ -3,11 +3,11 @@ from datasets import load_dataset, load_metric
 
 if __name__ == '__main__':
     def map_to_encoder_decoder_inputs(batch):
-        inputs = tokenizer(batch["article"],
+        inputs = tokenizer(batch["text"],
                            padding="max_length",
                            truncation=True,
                            max_length=encoder_length)
-        outputs = tokenizer(batch["highlights"],
+        outputs = tokenizer(batch["headline"],
                             padding="max_length",
                             truncation=True,
                             max_length=decoder_length)
@@ -41,15 +41,16 @@ if __name__ == '__main__':
 
 
     def generate_summary(batch):
-        inputs = tokenizer(batch["article"],
+        inputs = tokenizer(batch["text"],
                            padding="max_length",
                            truncation=True,
                            max_length=model.config.max_length,
                            return_tensors="pt")
         input_ids = inputs.input_ids.to("cuda")
         attention_mask = inputs.attention_mask.to("cuda")
-
-        outputs = model.generate(input_ids, attention_mask=attention_mask)
+        
+        outputs = model.generate(input_ids, attention_mask=attention_mask).to("cuda")
+        outputs = outputs.to("cuda")
 
         # all special tokens including will be removed
         output_str = tokenizer.batch_decode(outputs, skip_special_tokens=True)
@@ -71,14 +72,14 @@ if __name__ == '__main__':
                 "rougeL_fmeasure":  round(rouge_output["rougeL"].mid.fmeasure, 4)}
 
 
-    model = BartForConditionalGeneration.from_pretrained("facebook/bart-base")
+    model = BartForConditionalGeneration.from_pretrained("/home/arpit9295_2/Ayushi_Workspace/AbstractiveTextSummarizer/wiki_how/checkpoint-235000").to("cuda")
     tokenizer = BartTokenizer.from_pretrained('facebook/bart-base', add_prefix_space=True)
 
     tokenizer.bos_token = tokenizer.cls_token
     tokenizer.eos_token = tokenizer.sep_token
 
-    cnn_train_dataset = load_dataset('cnn_dailymail', '3.0.0', split='train')
-    cnn_val_dataset = load_dataset('cnn_dailymail', '3.0.0', split='validation')
+    wiki_train_dataset = load_dataset('wikihow', 'all', data_dir='manual_wikihow_data', split='train')
+    wiki_val_dataset = load_dataset('wikihow', 'all', data_dir='manual_wikihow_data', split='validation')
 
     rouge = load_metric('rouge')
 
@@ -98,11 +99,11 @@ if __name__ == '__main__':
     decoder_length = 256
     batch_size = 2
 
-    cnn_train_dataset = cnn_train_dataset.map(map_to_encoder_decoder_inputs,
+    wiki_train_dataset = wiki_train_dataset.map(map_to_encoder_decoder_inputs,
                                               batched=True,
                                               batch_size=batch_size,
-                                              remove_columns=["article", "highlights", "id"])
-    cnn_train_dataset.set_format(type="torch",
+                                              remove_columns=["headline", "title", "text"])
+    wiki_train_dataset.set_format(type="torch",
                                  columns=["input_ids",
                                           "attention_mask",
                                           "decoder_attention_mask",
@@ -110,18 +111,18 @@ if __name__ == '__main__':
                                           "label"])
 
     # same for validation dataset
-    cnn_val_dataset = cnn_val_dataset.map(map_to_encoder_decoder_inputs,
+    wiki_val_dataset = wiki_val_dataset.map(map_to_encoder_decoder_inputs,
                                           batched=True,
                                           batch_size=batch_size,
-                                          remove_columns=["article", "highlights", "id"])
-    cnn_val_dataset.set_format(type="torch",
+                                          remove_columns=["headline", "title", "text"])
+    wiki_val_dataset.set_format(type="torch",
                                columns=["input_ids",
                                         "decoder_attention_mask",
                                         "attention_mask",
                                         "decoder_input_ids",
                                         "label"])
 
-    training_args = TrainingArguments(output_dir="./cnn_dailymail",
+    training_args = TrainingArguments(output_dir="./wiki_how",
                                       per_device_train_batch_size=batch_size,
                                       per_device_eval_batch_size=batch_size,
                                       do_train=True,
@@ -138,23 +139,24 @@ if __name__ == '__main__':
                              tokenizer=tokenizer,
                              args=training_args,
                              compute_metrics=compute_metrics,
-                             train_dataset=cnn_train_dataset,
-                             eval_dataset=cnn_val_dataset)
+                             train_dataset=wiki_train_dataset,
+                             eval_dataset=wiki_val_dataset)
 
     # start training from checkpoint
-    trainer.train('/home/arpit9295_2/Ayushi_Workspace/AbstractiveTextSummarizer/cnn_dailymail/checkpoint-353000')
+    #trainer.train('/home/arpit9295_2/Ayushi_Workspace/AbstractiveTextSummarizer/wiki_how/checkpoint-235000')
 
-    # start training from scratch
-    # trainer.train()
-    cnn_test_dataset = load_dataset('cnn_dailymail', '3.0.0', split='test')
+    #start training from scratch
+    trainer.train()
+ 
+    wiki_test_dataset = load_dataset('wikihow', 'all', data_dir='manual_wikihow_data', split='test')
 
-    results = cnn_test_dataset.map(generate_summary,
+    results = wiki_test_dataset.map(generate_summary,
                                    batched=True,
                                    batch_size=batch_size,
-                                   remove_columns=["article"])
+                                   remove_columns=["text"])
 
     rouge_output = rouge.compute(predictions=results['pred'],
-                                 references=results['highlights'],
+                                 references=results['headline'],
                                  rouge_types=['rouge1', 'rouge2', 'rougeL'])
 
     print(format_rouge_output(rouge_output))
